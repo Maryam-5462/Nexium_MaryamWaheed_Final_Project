@@ -543,230 +543,94 @@
 //     </div>
 //   )
 // }
-
 "use client"
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabaseClient'
-import { useRouter } from 'next/navigation'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabaseClient"
+import { useRouter } from "next/navigation"
 
 export default function UploadResumePage() {
-  const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [description, setDescription] = useState('')
-  const [resumeText, setResumeText] = useState('')
-  const router = useRouter()
-  const [userId, setUserId] = useState<string>('')
+  const [description, setDescription] = useState("")
+  const [tailoredText, setTailoredText] = useState("")
+  const [userId, setUserId] = useState("")
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-        error
-      } = await supabase.auth.getUser()
-
-      if (error || !user) {
-        alert('You are not logged in')
+    const fetchUser = async () => {
+      const { data, error } = await supabase.auth.getUser()
+      if (error || !data.user) {
+        alert("You are not logged in")
         return
       }
-
-      setUserId(user.id)
+      setUserId(data.user.id)
     }
-
-    getUser()
+    fetchUser()
   }, [])
 
-  useEffect(() => {
-    const fetchTailored = async () => {
-      if (!userId) return
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!file || !userId) return alert("Missing file or user")
 
-      const res = await fetch(`/api/get-tailored-resume?user_id=${userId}`)
-      const data = await res.json()
+    // Upload to Supabase
+    const filePath = `${userId}/${Date.now()}_${file.name}`
+    const { error: uploadErr } = await supabase.storage
+      .from("resumes")
+      .upload(filePath, file)
+    if (uploadErr) return alert("Upload failed")
 
-      if (res.ok) {
-        setResumeText(data.tailored_text || 'No tailored resume found')
-      } else {
-        console.error('❌ Error fetching tailored resume:', data)
-      }
-    }
+    const fileUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/resumes/${filePath}`
 
-    fetchTailored()
-  }, [userId])
-
-  const handleUpload = async (e: React.FormEvent) => {
-  e.preventDefault()
-  if (!file) return alert('Please select a file')
-  if (!userId) return alert('User not loaded yet')
-
-  const filePath = `${userId}/${Date.now()}_${file.name}`
-
-  const { error: storageError } = await supabase.storage
-    .from('resumes')
-    .upload(filePath, file)
-
-  if (storageError) return alert(`Error uploading file: ${storageError.message}`)
-
-  const fileUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/resumes/${filePath}`
-
-  const { error: dbError } = await supabase.from('resumes').insert({
-    user_id: userId,
-    title,
-    content: fileUrl,
-    description
-  })
-
-  if (dbError) return alert('Error saving to Supabase')
-  alert('✅ Resume uploaded successfully!')
-
-  // 🔁 Call n8n webhook only to generate tailored resume text
-  const webhookRes = await fetch("http://localhost:5678/webhook-test/resume-tailor", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      resume_url: fileUrl,
-      job_description: description,
-      title,
-      user_id: userId
+    // Send to n8n
+    const webhookRes = await fetch("http://localhost:5678/webhook-test/resume-tailor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume_url: fileUrl, job_description: description, user_id: userId })
     })
-  })
 
-  const json = await webhookRes.json()
-  console.log("🧠 n8n returned:", json)
+    const { tailored_text } = await webhookRes.json()
+    if (!tailored_text) return alert("No tailored text returned")
+    setTailoredText(tailored_text)
 
-  if (!webhookRes.ok) {
-    alert("❌ Failed to get tailored resume from n8n")
-    return
-  }
-
-  const tailored = json.tailored_text || "No tailored resume returned"
-  setResumeText(tailored)
-
-  // ✅ Save to MongoDB via your own API route
-  if (tailored && tailored !== "No tailored resume returned") {
+    // Save to MongoDB
     const saveRes = await fetch("/api/save-tailored-resume", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId,
-        tailored_text: tailored
-      })
+      body: JSON.stringify({ user_id: userId, tailored_text })
     })
 
-    if (!saveRes.ok) {
-      const err = await saveRes.json()
-      console.error("❌ Failed to save tailored resume:", err)
-    }
-  }
-}
-
-
-  const downloadText = (text: string, filename: string) => {
-    const element = document.createElement("a")
-    const file = new Blob([text], { type: "text/plain" })
-    element.href = URL.createObjectURL(file)
-    element.download = filename
-    document.body.appendChild(element)
-    element.click()
-    document.body.removeChild(element)
-  }
-
-  const downloadPdf = async (text: string, filename: string) => {
-    const pdfDoc = await PDFDocument.create()
-    const page = pdfDoc.addPage()
-    const { width, height } = page.getSize()
-
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const fontSize = 12
-
-    const lines = text.match(/.{1,90}/g) || ['No content']
-    let y = height - 40
-
-    for (const line of lines) {
-      if (y < 40) {
-        page.drawText('...Text truncated...', { x: 50, y, size: fontSize, font })
-        break
-      }
-      page.drawText(line, { x: 50, y, size: fontSize, font, color: rgb(0, 0, 0) })
-      y -= 20
-    }
-
-    const pdfBytes = await pdfDoc.save()
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' })
-
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-
-
-    
+    if (!saveRes.ok) return alert("Failed to save to MongoDB")
+    alert("✅ Tailored resume saved")
   }
 
   return (
-    <div className="min-h-screen p-6 bg-gradient-to-br from-[#1f1b3a] to-[#0f0c29] text-white">
-      <h1 className="text-3xl font-bold mb-6">📤 Upload Resume (File)</h1>
+    <div className="min-h-screen bg-gray-950 text-white p-6">
+      <h1 className="text-2xl font-bold mb-4">Upload Resume</h1>
 
-      <form onSubmit={handleUpload} className="space-y-4 max-w-lg">
-        <input
-          className="w-full p-3 rounded bg-white/10 text-white placeholder-gray-300"
-          placeholder="Resume Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-
+      <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
         <textarea
-          className="w-full h-32 p-3 rounded bg-white/10 text-white placeholder-gray-300"
-          placeholder="Optional: Description or Summary"
+          placeholder="Job Description"
+          className="w-full p-2 bg-gray-800 rounded"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-
         <input
           type="file"
           accept=".pdf,.doc,.docx"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
-          className="w-full p-3 rounded bg-white/10 text-white"
+          className="w-full p-2 bg-gray-800 rounded"
         />
-
         <button
           type="submit"
-          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded transition"
+          className="bg-purple-600 px-4 py-2 rounded hover:bg-purple-700"
         >
-          Upload Resume File
+          Submit
         </button>
       </form>
 
-      {resumeText && (
-        <div className="mt-8 bg-white/10 p-4 rounded">
-          <h2 className="text-xl font-semibold mb-2">📄 Tailored Resume</h2>
-          <textarea
-            readOnly
-            className="w-full h-64 p-3 text-black bg-white rounded whitespace-pre-wrap"
-            value={resumeText || 'Loading or no text found.'}
-          />
-          <div className="flex gap-4 mt-2">
-            <button
-              onClick={() => navigator.clipboard.writeText(resumeText || '')}
-              className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded"
-            >
-              📋 Copy
-            </button>
-            <button
-              onClick={() => downloadText(resumeText || '', 'tailored-resume.txt')}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded"
-            >
-              💾 Download .txt
-            </button>
-            <button
-              onClick={() => downloadPdf(resumeText || '', 'tailored-resume.pdf')}
-              className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded"
-            >
-              🧾 Download as PDF
-            </button>
-          </div>
+      {tailoredText && (
+        <div className="mt-6 bg-gray-800 p-4 rounded">
+          <h2 className="text-lg font-semibold mb-2">Tailored Resume</h2>
+          <pre className="whitespace-pre-wrap text-white">{tailoredText}</pre>
         </div>
       )}
     </div>
