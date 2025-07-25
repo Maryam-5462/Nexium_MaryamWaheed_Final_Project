@@ -1,33 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { MongoClient } from 'mongodb'
-
-const uri = process.env.MONGODB_URI || ''
-const client = new MongoClient(uri)
+// /app/api/save-tailored-resume/route.ts
+import { NextRequest, NextResponse } from "next/server"
+import clientPromise from "@/lib/mongodb"
 
 export async function POST(req: NextRequest) {
   try {
-    const { user_id, tailored_text } = await req.json()
+    const { user_id, tailored_text, title } = await req.json()
 
-    if (!user_id || !tailored_text) {
-      return NextResponse.json({ error: 'Missing user_id or tailored_text' }, { status: 400 })
+    if (!user_id || !tailored_text || !title) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    await client.connect()
-    const db = client.db('resume_tailor') // replace with your DB name
-    const collection = db.collection('tailored_resumes')
+    const client = await clientPromise
+    const db = client.db("resume_tailor")
+    const collection = db.collection("tailored_resumes")
 
-    // Save or update the tailored resume
-    const result = await collection.updateOne(
-      { user_id }, // Match by user_id
-      { $set: { user_id, tailored_text, updatedAt: new Date() } },
-      { upsert: true } // Insert if doesn't exist
-    )
+    await collection.insertOne({
+      user_id,
+      title,
+      tailored_text,
+      created_at: new Date(),
+    })
 
-    return NextResponse.json({ success: true, result })
+    return NextResponse.json({ success: true })
   } catch (err) {
-    console.error('MongoDB Error:', err)
-    return NextResponse.json({ error: 'MongoDB Error', details: err }, { status: 500 })
-  } finally {
-    await client.close()
+    console.error("❌ Failed to save tailored resume:", err)
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }
 }
