@@ -4,5 +4,12 @@ const nextConfig = {
     appDir: true
   }
 }
+webpack: (config) => {
+  config.module.rules.push({
+    test: /\.test\.js$/,
+    use: 'ignore-loader',
+  });
+  return config;
+}
 
 module.exports = nextConfig
