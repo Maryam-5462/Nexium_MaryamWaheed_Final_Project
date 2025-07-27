@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient } from 'mongodb'
-import pdf from 'pdf-parse'
+//import pdf from 'pdf-parse'
 
 const uri = process.env.MONGODB_URI!
 const dbName = process.env.MONGODB_DB!
