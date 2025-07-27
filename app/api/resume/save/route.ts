@@ -1,29 +1,4 @@
-// import { NextRequest, NextResponse } from 'next/server'
-// import clientPromise from '@/lib/mongodb'
 
-// export async function POST(req: NextRequest) {
-//   try {
-//     const { fullText } = await req.json()
-
-//     if (!fullText) {
-//       return NextResponse.json({ error: 'No full text provided' }, { status: 400 })
-//     }
-
-//     const client = await clientPromise
-//     const db = client.db(process.env.MONGODB_DB)
-//     const collection = db.collection('full_texts')
-
-//     const result = await collection.insertOne({
-//       content: fullText,
-//       createdAt: new Date()
-//     })
-
-//     return NextResponse.json({ message: 'Saved to MongoDB', id: result.insertedId })
-//   } catch (err) {
-//     console.error('MongoDB save error:', err)
-//     return NextResponse.json({ error: 'Failed to save to MongoDB' }, { status: 500 })
-//   }
-// }
 // /app/api/resume/save/route.ts
 import { NextResponse } from 'next/server'
 import clientPromise from '@/lib/mongodb'
