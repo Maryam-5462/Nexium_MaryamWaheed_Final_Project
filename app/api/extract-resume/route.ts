@@ -1,12 +1,5 @@
 
 
-import { NextRequest, NextResponse } from 'next/server'
-import { MongoClient } from 'mongodb'
-import pdf from 'pdf-parse'
-
-const uri = process.env.MONGODB_URI!
-const dbName = process.env.MONGODB_DB!
-
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
   const file = formData.get('file') as File
@@ -18,6 +11,8 @@ export async function POST(req: NextRequest) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
+  // Dynamic import
+  const { default: pdf } = await import('pdf-parse')
   const text = await pdf(buffer)
 
   try {
