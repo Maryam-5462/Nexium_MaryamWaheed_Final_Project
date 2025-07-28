@@ -2,17 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient } from 'mongodb'
 
 const uri = process.env.MONGODB_URI || ''
-const client = new MongoClient(uri)
+
+export const dynamic = 'force-dynamic' // Prevent static optimization
 
 export async function GET(req: NextRequest) {
+  let client; // Declare client here
+  
   try {
     const userId = req.nextUrl.searchParams.get('user_id')
     if (!userId) {
       return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
     }
 
+    client = new MongoClient(uri) // Create new client per request
     await client.connect()
-    const db = client.db('resume_tailor') // same as above
+    
+    const db = client.db('resume_tailor')
     const collection = db.collection('tailored_resumes')
 
     const record = await collection.findOne({ user_id: userId })
@@ -24,8 +29,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ tailored_text: record.tailored_text })
   } catch (err) {
     console.error('MongoDB Read Error:', err)
-    return NextResponse.json({ error: 'MongoDB Error', details: err }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Database operation failed' }, 
+      { status: 500 }
+    )
   } finally {
-    await client.close()
+    if (client) {
+      await client.close().catch(e => console.error('Failed to close connection:', e))
+    }
   }
 }
